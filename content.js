@@ -135,30 +135,25 @@ function scrapeMetrics() {
     return null;
   }
 
-  // Find all dt elements with strong tags
-  const statsElements = statsContainer.querySelectorAll('dt strong');
-  log(`Found ${statsElements.length} stat elements`);
+  // Find all dt elements inside the stats container
+  const dtElements = statsContainer.querySelectorAll('dt');
+  log(`Found ${dtElements.length} <dt> elements`);
 
-  // Find the views and saves buttons
-  const buttons = statsContainer.querySelectorAll('button.TriggerText-c11n-8-106-0__sc-d96jze-0');
-  log(`Found ${buttons.length} buttons`);
+  dtElements.forEach((dt, idx) => {
+    const button = dt.querySelector('button.TriggerText-c11n-8-106-0__sc-d96jze-0');
+    if (!button) return;
 
-  buttons.forEach(button => {
     const label = button.textContent.trim().toLowerCase();
     if (label !== 'views' && label !== 'saves') {
-      log("Skipping unrelated button:", label);
+      log("Skipping unrelated button in <dt>:", label);
       return;
     }
-    log("Checking button:", label);
+    log("Checking button in <dt>:", label);
 
-    let dtContainer = button.closest('dt');
-    if (!dtContainer) {
-      log("Button is not inside a <dt>, skipping:", label);
-      return;
-    }
-    let dt = dtContainer.previousElementSibling;
-    if (dt && dt.querySelector('strong')) {
-      const value = parseInt(dt.querySelector('strong').textContent.replace(/[^\d]/g, ""), 10);
+    // Find the previous <dt> with a <strong>
+    let prevDt = dtElements[idx - 1];
+    if (prevDt && prevDt.querySelector('strong')) {
+      const value = parseInt(prevDt.querySelector('strong').textContent.replace(/[^\d]/g, ""), 10);
       log(`Found value ${value} for ${label}`);
       if (label === 'views') views = value;
       if (label === 'saves') saves = value;
