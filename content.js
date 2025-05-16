@@ -144,17 +144,26 @@ function scrapeMetrics() {
   log(`Found ${buttons.length} buttons`);
 
   buttons.forEach(button => {
-    const label = button.textContent.toLowerCase();
+    const label = button.textContent.trim().toLowerCase();
+    if (label !== 'views' && label !== 'saves') {
+      log("Skipping unrelated button:", label);
+      return;
+    }
     log("Checking button:", label);
 
-    // Find the previous dt element that contains the number
-    let dt = button.closest('dt').previousElementSibling;
+    let dtContainer = button.closest('dt');
+    if (!dtContainer) {
+      log("Button is not inside a <dt>, skipping:", label);
+      return;
+    }
+    let dt = dtContainer.previousElementSibling;
     if (dt && dt.querySelector('strong')) {
       const value = parseInt(dt.querySelector('strong').textContent.replace(/[^\d]/g, ""), 10);
       log(`Found value ${value} for ${label}`);
-      
-      if (label.includes('view')) views = value;
-      if (label.includes('save')) saves = value;
+      if (label === 'views') views = value;
+      if (label === 'saves') saves = value;
+    } else {
+      log("No previous <dt> with <strong> found for button:", label);
     }
   });
 
