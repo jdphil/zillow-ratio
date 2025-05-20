@@ -75,7 +75,7 @@ function renderBadge({ views, saves }) {
     log("Warning: saves greater than views, this might be incorrect");
   }
 
-  const ratio = saves / views;
+  let ratio = saves / views; // Ensure ratio is declared with let if it might be reassigned
   log("Raw ratio calculation:", { saves, views, ratio });
 
   // Validate ratio
@@ -125,48 +125,216 @@ function renderBadge({ views, saves }) {
 
 /* --------- steal the numbers irrespective of class names --------- */
 function scrapeMetrics() {
-  log("Starting to scrape metrics");
-  let views, saves;
+  log("Starting robust scrapeMetrics");
+  let views = null;
+  let saves = null;
 
-  // Try to find the stats container first
-  const statsContainer = document.querySelector('.styles__StyledOverviewStats-fshdp-8-106-0__sc-1x11gd9-0');
-  if (!statsContainer) {
-    log("Could not find stats container");
+  const viewLabels = ['views', 'view'];
+  const saveLabels = ['saves', 'save'];
+  const potentialValueSelectors = ['strong', 'span', 'div', 'dd', 'p']; // Elements that might contain the value
+
+  function parseNumber(text) {
+    if (typeof text !== 'string') return NaN;
+    const num = parseInt(text.replace(/[^\d]/g, ""), 10);
+    log(`parseNumber: input="${text}", output=${num}`);
+    return num;
+  }
+
+  function findValueNearLabel(labelElement, labelType) {
+    log(`findValueNearLabel: Searching for value for "${labelType}" near element:`, labelElement);
+
+    // Strategy 1: Check siblings for value
+    let sibling = labelElement.nextElementSibling;
+    while (sibling) {
+      log(`Checking next sibling:`, sibling);
+      for (const selector of potentialValueSelectors) {
+        const valueElement = sibling.matches(selector) ? sibling : sibling.querySelector(selector);
+        if (valueElement && valueElement.textContent) {
+          const num = parseNumber(valueElement.textContent);
+          if (!isNaN(num)) {
+            log(`Found value in next sibling (${selector}): ${num}`);
+            return num;
+          }
+        }
+      }
+      // Check sibling's direct text content if it's a potential value container itself
+      if (potentialValueSelectors.some(s => sibling.matches(s)) && sibling.textContent) {
+        const num = parseNumber(sibling.textContent);
+        if (!isNaN(num)) {
+            log(`Found value in next sibling's direct text: ${num}`);
+            return num;
+        }
+      }
+      sibling = sibling.nextElementSibling;
+    }
+
+    sibling = labelElement.previousElementSibling;
+    while (sibling) {
+      log(`Checking previous sibling:`, sibling);
+       for (const selector of potentialValueSelectors) {
+        const valueElement = sibling.matches(selector) ? sibling : sibling.querySelector(selector);
+        if (valueElement && valueElement.textContent) {
+          const num = parseNumber(valueElement.textContent);
+          if (!isNaN(num)) {
+            log(`Found value in previous sibling (${selector}): ${num}`);
+            return num;
+          }
+        }
+      }
+      if (potentialValueSelectors.some(s => sibling.matches(s)) && sibling.textContent) {
+        const num = parseNumber(sibling.textContent);
+        if (!isNaN(num)) {
+            log(`Found value in previous sibling's direct text: ${num}`);
+            return num;
+        }
+      }
+      sibling = sibling.previousElementSibling;
+    }
+
+    // Strategy 2: Check parent element's children (excluding the label element itself)
+    const parent = labelElement.parentElement;
+    if (parent) {
+      log(`Checking parent element:`, parent);
+      const children = Array.from(parent.children);
+      for (const child of children) {
+        if (child === labelElement) continue; // Skip the label element itself
+        log(`Checking parent's child:`, child);
+        for (const selector of potentialValueSelectors) {
+          const valueElement = child.matches(selector) ? child : child.querySelector(selector);
+          if (valueElement && valueElement.textContent) {
+            const num = parseNumber(valueElement.textContent);
+            if (!isNaN(num)) {
+              log(`Found value in parent's child (${selector}): ${num}`);
+              return num;
+            }
+          }
+        }
+         // Check child's direct text content if it's a potential value container itself
+        if (potentialValueSelectors.some(s => child.matches(s)) && child.textContent) {
+          const num = parseNumber(child.textContent);
+          if (!isNaN(num)) {
+              log(`Found value in parent's child direct text: ${num}`);
+              return num;
+          }
+        }
+      }
+      // Check parent's direct text content if it's a potential value container itself (less common)
+      // This might be too broad if the parent has other text nodes.
+      // Example: <div><span>Views</span> 123 </div>
+      // Consider parent.innerText and try to parse parts of it if other strategies fail.
+      // For now, focusing on distinct elements.
+    }
+
+    // Strategy 3: Look for elements with data-testid attributes (more specific)
+    // This is a general check, could be refined if specific patterns are known for value testids
+    const commonParent = labelElement.closest('div, li, tr') || document.body; // Search within a reasonable container
+    log(`Searching for data-testid values within:`, commonParent);
+    const testIdElements = commonParent.querySelectorAll('[data-testid]');
+    for (const el of testIdElements) {
+        const testId = el.getAttribute('data-testid').toLowerCase();
+        if (testId.includes(labelType) && (testId.includes('value') || testId.includes('count'))) {
+            log(`Found potential value element by data-testid="${testId}":`, el);
+            if (el.textContent) {
+                const num = parseNumber(el.textContent);
+                if (!isNaN(num)) {
+                    log(`Parsed value from data-testid element: ${num}`);
+                    return num;
+                }
+            }
+        }
+    }
+
+
+    log(`Value for "${labelType}" not found near label:`, labelElement);
     return null;
   }
 
-  // Find all dt elements inside the stats container
-  const dtElements = statsContainer.querySelectorAll('dt');
-  log(`Found ${dtElements.length} <dt> elements`);
+  // Main scraping logic
+  log("Scanning all potential label elements (span, p, div, button, dt, dd, li, th, td)");
+  const potentialElements = document.querySelectorAll('span, p, div, button, dt, dd, li, th, td');
+  log(`Found ${potentialElements.length} potential elements to check.`);
 
-  dtElements.forEach((dt, idx) => {
-    const button = dt.querySelector('button.TriggerText-c11n-8-106-0__sc-d96jze-0');
-    if (!button) return;
+  for (const el of potentialElements) {
+    if (views && saves) break; // Stop if both found
 
-    const label = button.textContent.trim().toLowerCase();
-    if (label !== 'views' && label !== 'saves') {
-      log("Skipping unrelated button in <dt>:", label);
-      return;
+    const textContent = el.textContent ? el.textContent.trim().toLowerCase() : "";
+    const testId = el.getAttribute('data-testid') ? el.getAttribute('data-testid').toLowerCase() : "";
+
+    if (!views) {
+      let isViewLabel = viewLabels.some(label => textContent.includes(label));
+      if (!isViewLabel && testId) {
+        isViewLabel = viewLabels.some(label => testId.includes(label) && !testId.includes('save')); // ensure it's not a save label
+      }
+
+      if (isViewLabel) {
+        log("Potential 'views' label found:", el, `textContent: "${textContent}"`, `testId: "${testId}"`);
+        const foundView = findValueNearLabel(el, 'views');
+        if (foundView !== null) {
+          views = foundView;
+          log(`SUCCESS: Views found: ${views}`);
+          // Continue to find saves, don't break yet
+        }
+      }
     }
-    log("Checking button in <dt>:", label);
 
-    // Find the previous <dt> with a <strong>
-    let prevDt = dtElements[idx - 1];
-    if (prevDt && prevDt.querySelector('strong')) {
-      const value = parseInt(prevDt.querySelector('strong').textContent.replace(/[^\d]/g, ""), 10);
-      log(`Found value ${value} for ${label}`);
-      if (label === 'views') views = value;
-      if (label === 'saves') saves = value;
-    } else {
-      log("No previous <dt> with <strong> found for button:", label);
+    if (!saves) {
+      let isSaveLabel = saveLabels.some(label => textContent.includes(label));
+      if (!isSaveLabel && testId) {
+        isSaveLabel = saveLabels.some(label => testId.includes(label) && !testId.includes('view')); // ensure it's not a view label
+      }
+
+      if (isSaveLabel) {
+        log("Potential 'saves' label found:", el, `textContent: "${textContent}"`, `testId: "${testId}"`);
+        const foundSave = findValueNearLabel(el, 'saves');
+        if (foundSave !== null) {
+          saves = foundSave;
+          log(`SUCCESS: Saves found: ${saves}`);
+          // Continue to find views, don't break yet
+        }
+      }
     }
-  });
+  }
 
-  if (views && saves) {
+  // Fallback: Try to find values directly by common data-testid patterns if not found via labels
+  if (views === null) {
+    log("Views not found via label scan, trying direct data-testid scan for views.");
+    const viewElements = document.querySelectorAll('[data-testid*="view"], [data-testid*="View"]'); // Case-insensitive parts
+    for (const el of viewElements) {
+        const testId = el.getAttribute('data-testid').toLowerCase();
+        if ((testId.includes('view') && !testId.includes('save')) && (testId.includes('count') || testId.includes('value') || testId.includes('total'))) {
+            log(`Direct data-testid candidate for VIEWS:`, el);
+            const num = parseNumber(el.textContent);
+            if (!isNaN(num)) {
+                views = num;
+                log(`SUCCESS: Views found via direct data-testid scan: ${views}`);
+                break;
+            }
+        }
+    }
+  }
+  if (saves === null) {
+    log("Saves not found via label scan, trying direct data-testid scan for saves.");
+    const saveElements = document.querySelectorAll('[data-testid*="save"], [data-testid*="Save"]');
+     for (const el of saveElements) {
+        const testId = el.getAttribute('data-testid').toLowerCase();
+        if ((testId.includes('save') && !testId.includes('view')) && (testId.includes('count') || testId.includes('value') || testId.includes('total'))) {
+            log(`Direct data-testid candidate for SAVES:`, el);
+            const num = parseNumber(el.textContent);
+            if (!isNaN(num)) {
+                saves = num;
+                log(`SUCCESS: Saves found via direct data-testid scan: ${saves}`);
+                break;
+            }
+        }
+    }
+  }
+
+
+  if (views !== null && saves !== null) {
     log(`Final metrics → views=${views}  saves=${saves}`);
     return { views, saves };
   }
 
-  log("Could not find both views and saves");
+  log("Could not find both views and saves after robust scan.", {views, saves});
   return null;
 }
